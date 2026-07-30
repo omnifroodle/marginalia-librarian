@@ -14,6 +14,8 @@ when Matt picks a different SDK version.
 
 from __future__ import annotations
 
+import time
+
 import pytest
 
 from librarian.cb.client import create_cluster
@@ -71,6 +73,53 @@ def test_ping_reports_core_services_healthy(cb_config):
             assert _enum_value(endpoint.state) == "ok", (
                 f"{name} endpoint not ok: {endpoint.state} ({endpoint.remote})"
             )
+
+
+def test_configured_timeouts_reach_the_sdk():
+    """Config timeouts must actually be handed to the SDK.
+
+    Nothing else in this file notices if they are silently dropped: a healthy
+    local cluster answers well inside every default, so an implementation that
+    builds `ClusterOptions` and forgets the timeouts passes every other test
+    here. The gap only shows up on a slow link — i.e. in production.
+
+    So: point at an unroutable address and watch the clock. The SDK's default
+    bootstrap timeout is 10s; with `bootstrap: 2` configured, a correct
+    implementation gives up in ~2s and one that ignores config takes ~10s.
+
+    No credentials and no live cluster needed — nothing answers at this address.
+    """
+    config = Config(
+        {
+            "couchbase": {
+                # TEST-NET-1 (RFC 5737): reserved for documentation, routable
+                # to nowhere, so the connection attempt hangs until it times out.
+                "connection_string": "couchbase://192.0.2.1",
+                "username": "irrelevant",
+                "password": "irrelevant",
+                "bucket": "librarian",
+                "timeouts": {"bootstrap": 2},
+            }
+        }
+    )
+
+    start = time.monotonic()
+    with pytest.raises(Exception) as exc_info:  # noqa: B017 — narrowed below
+        cluster = create_cluster(config)
+        cluster.bucket(config.couchbase_bucket).ping()
+    elapsed = time.monotonic() - start
+
+    assert "UnAmbiguousTimeoutException" in _exception_names(exc_info.value), (
+        f"expected a timeout, got {type(exc_info.value).__name__}: {exc_info.value}. "
+        "If this machine's network rejects (rather than blackholes) traffic to "
+        "192.0.2.1, this test can't measure anything — say so rather than "
+        "loosening it."
+    )
+    assert elapsed < 6.0, (
+        f"gave up after {elapsed:.1f}s despite couchbase.timeouts.bootstrap=2. "
+        "The SDK default is 10s, so the configured timeouts are not reaching "
+        "ClusterOptions."
+    )
 
 
 def test_bad_credentials_are_not_swallowed(couchbase_settings):

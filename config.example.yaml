@@ -72,7 +72,10 @@ couchbase:
   bucket: "librarian"
   scope: "_default"
   # Seconds. Omit the block entirely to take the SDK's own defaults (shown).
+  # `bootstrap` is the initial-handshake budget and is what governs how long a
+  # failing connection takes to give up — not `connect`.
   # timeouts:
+  #   bootstrap: 10
   #   connect: 10
   #   kv: 2.5
   #   query: 75

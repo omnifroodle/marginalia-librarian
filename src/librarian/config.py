@@ -179,6 +179,17 @@ class Config:
     # changes nothing.
 
     @property
+    def couchbase_bootstrap_timeout(self) -> float:
+        """Budget for the initial cluster handshake.
+
+        Distinct from `connect_timeout`, and the one that actually governs how
+        long a *failing* connection takes to give up — verified empirically
+        against SDK 4.6.2. The `wan_development` profile raises it to 120s,
+        which is the clue that it matters on high-latency links.
+        """
+        return float(self._data.get("couchbase", {}).get("timeouts", {}).get("bootstrap", 10.0))
+
+    @property
     def couchbase_connect_timeout(self) -> float:
         return float(self._data.get("couchbase", {}).get("timeouts", {}).get("connect", 10.0))
 

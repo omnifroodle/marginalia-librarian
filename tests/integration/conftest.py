@@ -17,9 +17,10 @@ from pathlib import Path
 
 import pytest
 
-from librarian.config import Config
+from librarian.config import Config, load_config
 
 _HERE = Path(__file__).parent
+_REPO_ROOT = _HERE.parent.parent
 
 # The cluster may be remote (e.g. the `office` docker host) — override with
 # LIBRARIAN_TEST_COUCHBASE_HOST. Env *reads* are fine; writes are what
@@ -27,17 +28,36 @@ _HERE = Path(__file__).parent
 COUCHBASE_MGMT_HOST = os.environ.get("LIBRARIAN_TEST_COUCHBASE_HOST", "localhost")
 COUCHBASE_MGMT_PORT = int(os.environ.get("LIBRARIAN_TEST_COUCHBASE_PORT", "8091"))
 
-# Credentials are whatever Matt chose during the manual cluster init (Lesson 0)
-# and are never committed. See NOTES.md § "Credentials for integration tests".
-COUCHBASE_USERNAME = os.environ.get("LIBRARIAN_TEST_COUCHBASE_USERNAME", "Administrator")
-COUCHBASE_PASSWORD = os.environ.get("LIBRARIAN_TEST_COUCHBASE_PASSWORD", "")
-COUCHBASE_BUCKET = os.environ.get("LIBRARIAN_TEST_COUCHBASE_BUCKET", "librarian")
-# Derived from the management host by default so one env var moves both the
-# reachability probe and the SDK connection. Lesson 13 (Capella) overrides this
-# directly with a couchbases:// string.
-COUCHBASE_CONNECTION_STRING = os.environ.get(
-    "LIBRARIAN_TEST_COUCHBASE_CONNECTION_STRING", f"couchbase://{COUCHBASE_MGMT_HOST}"
-)
+
+def _env(name: str) -> str | None:
+    """An env var's value, treating empty as unset."""
+    return os.environ.get(name) or None
+
+
+def _settings_from_config_file() -> dict:
+    """The `couchbase:` block from a local config.yaml, if there is one.
+
+    config.yaml is gitignored and is the documented place credentials live, so
+    honouring it means a working dev setup needs nothing exported — and any
+    session (including an agent's) can run the integration suite.
+    """
+    path = _REPO_ROOT / "config.yaml"
+    if not path.exists():
+        return {}
+    try:
+        cfg = load_config(path)
+    except (ValueError, OSError) as exc:
+        # ${VAR} interpolation raises when a referenced var is unset — e.g. a
+        # config.yaml copied from the example still wants NANOGPT_API_KEY.
+        # Skip with the reason rather than erroring out of a fixture.
+        pytest.skip(f"config.yaml is present but unloadable: {exc}")
+    return {
+        "connection_string": cfg.couchbase_connection_string,
+        "username": cfg.couchbase_username,
+        "password": cfg.couchbase_password,
+        "bucket": cfg.couchbase_bucket,
+        "scope": cfg.couchbase_scope,
+    }
 
 
 def _cluster_reachable(timeout: float = 1.0) -> bool:
@@ -60,22 +80,41 @@ def cluster_address() -> tuple[str, int]:
 def couchbase_settings() -> dict:
     """The raw `couchbase:` config block for the harness cluster.
 
-    Returned as a plain dict (not a Config) so tests can vary one field —
+    Resolution order, most specific first:
+      1. LIBRARIAN_TEST_COUCHBASE_* env vars — per-run overrides
+      2. the repo's gitignored config.yaml
+      3. built-in defaults (localhost, Administrator, bucket `librarian`)
+
+    A password has to come from (1) or (2); without one the suite skips.
+
+    Returned as a plain dict (not a Config) so tests can vary a single field —
     a deliberately wrong password, a different bucket — and rebuild.
     """
-    if not COUCHBASE_PASSWORD:
-        pytest.skip(
-            "LIBRARIAN_TEST_COUCHBASE_PASSWORD is not set — export the admin "
-            "password chosen during cluster init (see NOTES.md). Run "
-            "./training-tools/env-check.sh to check the whole environment."
-        )
-    return {
-        "connection_string": COUCHBASE_CONNECTION_STRING,
-        "username": COUCHBASE_USERNAME,
-        "password": COUCHBASE_PASSWORD,
-        "bucket": COUCHBASE_BUCKET,
-        "scope": "_default",
+    settings = _settings_from_config_file()
+    overrides = {
+        "connection_string": _env("LIBRARIAN_TEST_COUCHBASE_CONNECTION_STRING"),
+        "username": _env("LIBRARIAN_TEST_COUCHBASE_USERNAME"),
+        "password": _env("LIBRARIAN_TEST_COUCHBASE_PASSWORD"),
+        "bucket": _env("LIBRARIAN_TEST_COUCHBASE_BUCKET"),
     }
+    settings.update({k: v for k, v in overrides.items() if v is not None})
+
+    # Derived from the management host so one env var moves both the
+    # reachability probe and the SDK connection. Lesson 13 (Capella) sets a
+    # couchbases:// string here instead.
+    settings.setdefault("connection_string", f"couchbase://{COUCHBASE_MGMT_HOST}")
+    settings.setdefault("username", "Administrator")
+    settings.setdefault("bucket", "librarian")
+    settings.setdefault("scope", "_default")
+
+    if not settings.get("password"):
+        pytest.skip(
+            "No Couchbase password available — either export "
+            "LIBRARIAN_TEST_COUCHBASE_PASSWORD or put the admin password in "
+            "config.yaml under couchbase.password (gitignored; see NOTES.md). "
+            "./training-tools/env-check.sh checks the whole environment."
+        )
+    return settings
 
 
 @pytest.fixture
