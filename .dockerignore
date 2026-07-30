@@ -1,0 +1,12 @@
+# The local config carries ${NANOGPT_API_KEY} interpolation and personal
+# paths — it must never enter the build context. The image ships
+# config.docker.yaml instead.
+config.yaml
+
+.venv/
+__pycache__/
+*.pyc
+logs/
+reject_log.json
+tests/
+docs/

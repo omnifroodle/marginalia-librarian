@@ -1,0 +1,19 @@
+# Local deployment config (copy from config.example.yaml)
+config.yaml
+config.capella.yaml
+
+# Secrets / environment
+.env
+
+# Runtime artifacts
+logs/
+reject_log.json
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+build/
+dist/

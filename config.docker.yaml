@@ -1,0 +1,65 @@
+# librarian configuration for the demo compose stack (baked into the image
+# as /app/config.yaml — see librarian/Dockerfile).
+#
+# Mirrors config.example.yaml with three deliberate differences; keep the two
+# files in sync when settings change:
+#   1. No `api_key: "${NANOGPT_API_KEY}"` line — ${VAR} interpolation raises
+#      when the var is unset, and the demo stack must boot keyless
+#      (browse/read works; a search reports a typed llm_auth error). The key
+#      arrives via the LIBRARIAN_API_KEY env override instead (compose wires
+#      it from NANOGPT_API_KEY; an empty value is a no-op).
+#   2. Container paths: vault at /vault (bind mount), logs under /app.
+#   3. No cors_origins — defaults to ["*"], because the browser origin
+#      depends on where the stack runs (localhost vs a tailnet host).
+
+models:
+  tree_generation: "claude-haiku-4-5-20251001"
+  reasoning: "claude-sonnet-5"
+  # notes: defaults to reasoning
+  embedding: "openai/BAAI/bge-m3"
+
+litellm:
+  api_base: "https://nano-gpt.com/api/v1"
+  # api_key comes from the LIBRARIAN_API_KEY env var — see header note 1.
+  embedding_dimension: 1024
+
+opensearch:
+  # Compose overrides via OPENSEARCH_HOST=opensearch; this default lets the
+  # image also run against a cluster on the docker host.
+  host: "localhost"
+  port: 9200
+  index_prefix: "marginalia"
+  tls: false
+  verify_certs: false
+
+library:
+  vault_root: "/vault"
+
+ingestion:
+  reject_log_path: "/app/reject_log.json"
+
+search:
+  default_top_k: 20
+  shortlist_size: 5
+  reasoning_mode: "agentic"
+  teleport_max: 3
+
+notes:
+  max_liner_notes_per_citation: 4
+
+api:
+  # The container must listen beyond loopback; serve is started with
+  # --host 0.0.0.0 in the Dockerfile CMD, so this is documentation.
+  host: "0.0.0.0"
+  port: 8000
+
+resilience:
+  completion_timeout: 300
+  embedding_timeout: 120
+  num_retries: 3
+  max_concurrent_llm_calls: 10
+  rate_limit_retries: 10
+  rate_limit_max_wait: 120
+
+logging:
+  dir: "/app/logs"

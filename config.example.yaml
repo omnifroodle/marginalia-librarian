@@ -1,0 +1,110 @@
+# librarian configuration
+# Copy to config.yaml and fill in your values.
+# Values like ${ENV_VAR} are interpolated from environment variables.
+# config.docker.yaml is this file's container twin (keyless, /vault paths) —
+# keep the two in sync when settings change.
+
+# The defaults below are sized for a real workload. For development and testing,
+# where the cost that bites is a hundred tree-generation calls per book rather
+# than any single query, a flat-rate subscription on an OpenAI-compatible gateway
+# (this file is already pointed at NanoGPT) makes the spend predictable. Budget
+# alternatives are noted per model.
+#
+# One hard constraint whatever you pick: `reasoning` MUST support tool calling.
+# Without it, agentic tree navigation silently falls back to one_shot — no error,
+# just visibly worse citations (one_shot finds sections that *cross-reference*
+# the answer where agentic finds the answer itself).
+
+models:
+  # Model for PageIndex tree generation (Haiku-class: fast, cheap). Runs once per
+  # node at ingest — a few hundred calls for a full book, so this is where an
+  # ingest run's cost actually lives.
+  tree_generation: "claude-haiku-4-5-20251001"
+  # Budget: "deepseek/deepseek-v4-flash"
+  #
+  # Model for query reasoning (agentic tree navigation; needs tool support).
+  reasoning: "claude-sonnet-5"
+  # Budget: "deepseek/deepseek-v4-pro" — tool calling works, but expect the
+  # agentic loop to take minutes rather than ~30s.
+  #
+  # Model for citation blurbs + liner notes; defaults to reasoning if unset
+  # notes: "claude-sonnet-5"
+  # Embedding model — must produce exactly `embedding_dimension` dimensions.
+  # BAAI/bge-m3 is available on NanoGPT and produces exactly 1024 dimensions.
+  embedding: "openai/BAAI/bge-m3"
+
+litellm:
+  # Base URL for an OpenAI-compatible API (e.g., NanoGPT, Ollama, etc.)
+  api_base: "https://nano-gpt.com/api/v1"
+  api_key: "${NANOGPT_API_KEY}"
+  # Optional: use a different endpoint just for embeddings.
+  # embedding_api_base: "http://localhost:11434/v1"
+  # embedding_api_key: "ollama"
+  # Embedding dimension — MUST match the knn_vector dimension in the mapping.
+  embedding_dimension: 1024
+  # Optional: separate endpoint for reasoning/notes models. Set both to null (~)
+  # to use a native provider via its own env var (e.g. ANTHROPIC_API_KEY) with a
+  # provider-prefixed model name like "anthropic/claude-sonnet-5".
+  # reasoning_api_base: ~
+  # reasoning_api_key: ~
+
+opensearch:
+  host: "localhost"
+  port: 9200
+  # Namespaces this deployment's indexes and search pipeline on the cluster
+  # (e.g. marginalia_documents). Default: "librarian". Set per deployment so
+  # multiple librarian-based apps can share one cluster.
+  index_prefix: "marginalia"
+  tls: false
+  verify_certs: false
+  # Remove or leave blank for no authentication
+  # auth:
+  #   username: "admin"
+  #   password: "${OPENSEARCH_PASSWORD}"
+
+library:
+  # Root the corpus lives under; source_path in the index is relative to this,
+  # and the /assets endpoint serves original files from it.
+  vault_root: "/Volumes/vault/demo"
+
+ingestion:
+  # Persistent log of files that failed ingestion — consulted before processing
+  # to avoid re-burning LLM budget on known-bad files. Use --force to retry.
+  reject_log_path: "./reject_log.json"
+
+search:
+  # Number of candidate documents retrieved in Phase 1 discovery
+  default_top_k: 20
+  # Number of candidates to shortlist via LLM in Phase 2 (must be <= top_k)
+  shortlist_size: 5
+  # Phase 3 mode: "agentic" (tool-calling navigation) or "one_shot"
+  reasoning_mode: "agentic"
+  # Max teleport tool calls (search_corpus / search_pages) per query
+  teleport_max: 3
+
+notes:
+  max_liner_notes_per_citation: 4
+
+api:
+  host: "127.0.0.1"
+  port: 8000
+  # Browser origins allowed to call the API (the reader's pdf.js fetches
+  # /assets cross-origin). Default: ["*"].
+  cors_origins:
+    - "http://localhost:4000"
+
+resilience:
+  completion_timeout: 300
+  embedding_timeout: 120
+  num_retries: 3
+  max_concurrent_llm_calls: 10
+  # 429-specific patience: budget-host subscriptions rate-limit per minute, so
+  # waits are minutes-scale. Honors the Retry-After header when present (capped
+  # at rate_limit_max_wait seconds), else exponential backoff up to the cap.
+  rate_limit_retries: 10
+  rate_limit_max_wait: 120
+
+logging:
+  # Directory for diagnostic logs (JSON parse failures, teleport events,
+  # PageIndex run logs). Comment out to disable file logging.
+  dir: "./logs"
