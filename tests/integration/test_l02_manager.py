@@ -24,7 +24,7 @@ import pytest
 
 from librarian.cb.client import create_cluster
 from librarian.cb.manager import CollectionManager
-from librarian.cb.names import ALL_COLLECTIONS, DOCUMENTS
+from librarian.cb.names import ALL_COLLECTIONS, DOCUMENTS, PAGE_CONTENT, TREE_NODES
 from librarian.config import Config
 
 pytestmark = pytest.mark.lesson(2)
@@ -141,6 +141,34 @@ def test_ensure_collections_is_idempotent(scoped_config):
         f"second ensure_collections() reported {second} — expected all 'skipped'"
     )
     assert _collections_in(cluster, scoped_config) >= set(ALL_COLLECTIONS)
+
+
+def test_ensure_collections_reports_state_per_collection(scoped_config):
+    """A partly-provisioned scope must be reported collection by collection.
+
+    The other two ensure tests only cover the endpoints — nothing exists, or
+    everything does — and an all-or-nothing implementation ("did I have to
+    create the scope? then everything is new") passes both while being wrong.
+
+    Partial state is not a corner case: it is what every existing deployment
+    looks like the day a lesson adds a fourth name to `ALL_COLLECTIONS`. Three
+    present, one missing, and `init-indexes` has to say so accurately.
+    """
+    cluster = create_cluster(scoped_config)
+
+    # Provision one collection behind the manager's back, via the SDK's own
+    # CollectionManager, so it is genuinely pre-existing.
+    sdk = cluster.bucket(scoped_config.couchbase_bucket).collections()
+    sdk.create_scope(scoped_config.couchbase_scope)
+    sdk.create_collection(scoped_config.couchbase_scope, TREE_NODES)
+
+    results = dict(CollectionManager(cluster, scoped_config).ensure_collections())
+
+    assert results[TREE_NODES] == "skipped", (
+        f"{TREE_NODES} existed before the call; got {results[TREE_NODES]!r}"
+    )
+    assert results[DOCUMENTS] == "created"
+    assert results[PAGE_CONTENT] == "created"
 
 
 def test_collections_are_usable_when_ensure_returns(scoped_config):
