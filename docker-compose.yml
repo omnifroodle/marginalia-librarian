@@ -3,8 +3,10 @@
 # Enterprise Edition is required: FTS vector search (Lesson 9) is EE-only.
 # EE is free for development and testing.
 #
-# First run: `docker compose up -d`, then open http://localhost:8091 and
-# initialize the cluster BY HAND (Lesson 0 — this is deliberate DCE practice):
+# First run: `docker compose up -d`, wait for the container to report healthy
+# (`docker compose ps`), then open http://localhost:8091 — plain http; TLS
+# lives on 18091 — and initialize the cluster BY HAND (Lesson 0, deliberate
+# DCE practice):
 #   - Setup New Cluster; name it whatever you like
 #   - Services: Data, Query, Index, Search (Analytics/Eventing/Backup not needed)
 #   - Set memory quotas (defaults are fine for a demo corpus)
@@ -16,13 +18,38 @@ services:
   couchbase:
     image: couchbase/server:enterprise-7.6.5
     container_name: marginalia-librarian-couchbase
+    # Couchbase's documented limits (docker run --ulimit equivalents).
+    # nofile: the server expects 40960 open files; core/memlock want
+    # "unlimited", which compose can't express, so 100GB per the official
+    # docker run line on Docker Hub.
+    ulimits:
+      nproc: 65535
+      nofile:
+        soft: 40960
+        hard: 40960
+      core:
+        soft: 100000000
+        hard: 100000000
+      memlock:
+        soft: 100000000
+        hard: 100000000
     ports:
-      - "8091-8096:8091-8096"    # web UI / REST (8091), views, query, FTS, ...
-      - "18091-18096:18091-18096" # TLS variants
-      - "11210:11210"            # KV (memcached protocol)
-      - "11207:11207"            # KV over TLS
+      - "8091-8097:8091-8097"     # web console (8091) + service REST APIs
+      - "18091-18097:18091-18097" # TLS variants
+      - "11210:11210"             # KV (memcached protocol)
+      - "11207:11207"             # KV over TLS
+      # The official run line also publishes 9123 (Analytics) and 11280
+      # (metrics) — omitted: we don't run the Analytics service.
     volumes:
       - couchbase-data:/opt/couchbase/var
+    healthcheck:
+      # /pools answers 200 once the management API is actually serving,
+      # including on an uninitialized node — this is the "UI is ready" signal.
+      test: ["CMD", "curl", "-sf", "http://localhost:8091/pools"]
+      interval: 5s
+      timeout: 3s
+      retries: 60
+      start_period: 30s
 
 volumes:
   couchbase-data:
