@@ -81,6 +81,11 @@ couchbase:
   #   query: 75
   #   search: 75
   # Named SDK timeout profile; set to "wan_development" for Capella (Lesson 13).
+  #
+  # Use one or the other, not both: a timeout_profile is a complete policy, and
+  # setting it makes the `timeouts` block above inert. The profile bulk-relaxes
+  # every timeout for high-latency links, so letting per-service values override
+  # it piecemeal is how you end up with LAN timeouts over a WAN.
   # timeout_profile: "wan_development"
   # CA certificate for a self-signed TLS cluster. Capella's root CA ships with
   # the SDK, so leave this unset there. Not a switch for disabling verification.

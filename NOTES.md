@@ -54,6 +54,35 @@ the instructor to keep this).
   Deciding to write tests without importing the SDK does not license guessing
   about it. Cheap to check:
   `python -c "from couchbase.diagnostics import ServiceType; print({s.name: s.value for s in ServiceType})"`
+- **2026-07-30 — the rubric has to live in tests, not prose.** Matt reported
+  "4 tests passed but the code isn't what is required." True: the Lesson 1
+  rubric asked for a version-constrained dependency, no blanket `except`, and
+  timeouts actually reaching the SDK, and *nothing enforced any of it*. A
+  healthy local cluster answers well inside every default, so dropped timeouts
+  are invisible. Fixes: the three hygiene tests over `cb/`, and a behavioral
+  timeout test that points at TEST-NET-1 and watches the clock. **Rule: every
+  rubric line either has a test or is explicitly a judgement call raised in
+  review** — a rubric item with no test is a rubric item that will pass.
+- **2026-07-30 — "how would you build it?" is the pressure point.** The hard
+  rule held all lesson, but the useful move when Matt was stuck wasn't prose
+  about the API — it was a skeleton with the SDK calls elided (`options = ...
+  # ClusterOptions(authenticator, timeout_options=...)`) plus a two-line REPL
+  check he could run to *see* the failure himself (`dict(options)` before and
+  after). Showing the shape and the diagnostic, not the answer. Worth reusing:
+  when the blocker is structural (where does this line go) rather than
+  conceptual, the skeleton unblocks without writing his code.
+- **2026-07-30 — silent-drop APIs need behavioral tests, not shape tests.**
+  Three separate Lesson 1 bugs were the SDK accepting something and ignoring
+  it: floats where `timedelta` was required (accepted at construction, raised
+  much later), `options.timeout_options = x` on a dict subclass (silently
+  discarded), unrecognized `ClusterTimeoutOptions` keys (dropped, not
+  rejected). No amount of asserting on the options object catches these. Every
+  future lesson touching an options object should get at least one test that
+  measures an *effect*.
+- **2026-07-30 — agent commit discipline.** `git add -A` swept Matt's
+  in-progress `client.py` into an agent commit, violating "Matt commits his own
+  lesson code with his own commit message." Recovered with `git reset --soft
+  HEAD~1`. **Rule: agent commits always name explicit paths, never `-A`/`.`**
 
 ---
 
@@ -81,6 +110,42 @@ source .venv/bin/activate       # fish: source .venv/bin/activate.fish
 Baseline 2026-07-30: **113 unit passed, 1 integration passed.**
 Integration tests skip cleanly (with instructions) when nothing is listening on
 the cluster's management port — see `tests/integration/conftest.py`.
+
+## Python SDK gotchas (4.6.2)
+
+Three ways the options objects fail *silently*. All verified by measurement on
+this machine, not recalled — re-verify if the pinned version moves.
+
+- **Timeouts must be `timedelta`, and floats fail late.**
+  `ClusterTimeoutOptions(bootstrap_timeout=2.0)` constructs happily and even
+  shows `{'bootstrap_timeout': 2.0}` under `dict()`. It blows up later, at
+  `Cluster(...)`, with `InvalidArgumentException`. `timedelta(seconds=2)`
+  works. This is why config keeps seconds-as-floats and the client converts at
+  the boundary.
+- **`options.timeout_options = ...` does nothing.** `ClusterOptions` is a dict
+  subclass; attribute assignment sets a Python attribute nobody reads. It must
+  be a constructor kwarg: `ClusterOptions(auth, timeout_options=...)`. Compare
+  `dict(options)` before and after to see it — the post-hoc form leaves only
+  `{'authenticator': ...}`.
+- **`apply_profile(None)` raises** `InvalidArgumentException(<message=None is
+  not a registered profile.>)`. The only registered profile is
+  `wan_development`. Guard the call; a `None` profile is the local default.
+- **Bootstrap is eager.** `Cluster.__init__` → `ClusterImpl` → `ClientAdapter.
+  _execute_connect_request()` connects and raises there; it is not deferred to
+  first use.
+
+Introspect rather than trusting the docs, which lag the SDK:
+
+```python
+from couchbase.options import ClusterTimeoutOptions
+print(ClusterTimeoutOptions.__doc__)              # arg list with types
+print(ClusterTimeoutOptions._VALID_OPTS.keys())   # what is actually accepted
+```
+
+Unrecognized keys are dropped, not rejected — which is why
+`tests/integration/test_l01_connect.py::test_configured_timeouts_reach_the_sdk`
+measures wall-clock against an unroutable address (TEST-NET-1, `192.0.2.1`)
+instead of asserting on the options object.
 
 ## Local Couchbase cluster
 
@@ -131,7 +196,15 @@ config block — see `Config.apply_env_overrides`.
 
 `config.yaml` is gitignored; copy `config.example.yaml`. It is **not** required
 for the integration suite (fixtures build a `Config` from env) — only for the
-CLI and the API.
+CLI and the API. If you do keep one, the fixtures will read `couchbase.password`
+from it, so nothing needs exporting.
+
+Gotcha (fixed 2026-07-30): the fixtures interpolate **only** the `couchbase:`
+block, not the whole file. `load_config()` resolves every `${VAR}` in
+config.yaml, so a file copied from the example used to skip the entire
+integration suite over an unset `NANOGPT_API_KEY` — a missing LLM key has
+nothing to do with whether a cluster is reachable. See
+`_settings_from_config_file` in `tests/integration/conftest.py`.
 
 ## Reusing this setup for another training repo
 

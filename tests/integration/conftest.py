@@ -16,8 +16,9 @@ import socket
 from pathlib import Path
 
 import pytest
+import yaml
 
-from librarian.config import Config, load_config
+from librarian.config import Config, _interpolate_env_vars
 
 _HERE = Path(__file__).parent
 _REPO_ROOT = _HERE.parent.parent
@@ -40,17 +41,29 @@ def _settings_from_config_file() -> dict:
     config.yaml is gitignored and is the documented place credentials live, so
     honouring it means a working dev setup needs nothing exported — and any
     session (including an agent's) can run the integration suite.
+
+    Only the `couchbase:` block is interpolated. `load_config()` would resolve
+    every `${VAR}` in the file, so a config.yaml copied from the example skips
+    this whole suite over an unset NANOGPT_API_KEY — an LLM key has nothing to
+    do with whether we can reach a cluster.
     """
     path = _REPO_ROOT / "config.yaml"
     if not path.exists():
         return {}
     try:
-        cfg = load_config(path)
-    except (ValueError, OSError) as exc:
-        # ${VAR} interpolation raises when a referenced var is unset — e.g. a
-        # config.yaml copied from the example still wants NANOGPT_API_KEY.
-        # Skip with the reason rather than erroring out of a fixture.
-        pytest.skip(f"config.yaml is present but unloadable: {exc}")
+        with open(path) as fh:
+            raw = yaml.safe_load(fh) or {}
+    except (OSError, yaml.YAMLError) as exc:
+        pytest.skip(f"config.yaml is present but unreadable: {exc}")
+    try:
+        block = _interpolate_env_vars(raw.get("couchbase") or {})
+    except ValueError as exc:
+        # An unset ${VAR} inside the couchbase block itself — that one really
+        # does block us, so skip with the reason rather than erroring.
+        pytest.skip(f"config.yaml couchbase block: {exc}")
+
+    cfg = Config({"couchbase": block})
+    cfg.apply_env_overrides()  # COUCHBASE_* still win over the file
     return {
         "connection_string": cfg.couchbase_connection_string,
         "username": cfg.couchbase_username,

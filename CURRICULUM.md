@@ -64,7 +64,7 @@ and connection-string handling, and the Phase 2 design memo.
 | Lesson | Title | Status | Date |
 |---|---|---|---|
 | 0 | Environment: cluster init + Capella checklist | **done** (local; Capella checklist outstanding) | 2026-07-30 |
-| 1 | Cluster connection + config plumbing | **scaffolded — Matt's turn** | |
+| 1 | Cluster connection + config plumbing | **done** | 2026-07-30 |
 | 2 | Bucket/scope/collection management | pending | |
 | 3 | Single-document KV upsert | pending | |
 | 4 | Bulk operations | pending | |
@@ -666,4 +666,38 @@ rule applied to the scaffold itself — every SDK import in this repo is yours.
    bucket open, or first operation? Try it. What does that tell you about when
    a customer's "it connected fine, then everything timed out" ticket is really
    an auth problem?
+
+## Lesson 1 — record (2026-07-30)
+
+**Done.** `316eb78` — `src/librarian/cb/client.py::create_cluster`,
+`couchbase` added to `pyproject.toml` `[project] dependencies`.
+120 unit passed, 5 integration passed, `cb/` pyflakes-clean.
+
+Decisions Matt made:
+
+- **Waits.** `wait_until_ready(bootstrap_timeout, WaitUntilReadyOptions(
+  service_types=[KeyValue, Query, Search]))` — the factory blocks until the
+  cluster is usable, so a cold or misconfigured cluster fails once at startup
+  rather than scattered across the first N operations. `bootstrap_timeout`
+  serves as both the SDK handshake budget and the readiness budget, so the knob
+  has one meaning. Consequence to revisit in Lesson 13: this hard-requires the
+  Search service on every deployment.
+- **Profile beats explicit timeouts.** A `timeout_profile` is a complete
+  policy; setting it makes the `timeouts:` block inert rather than merging.
+  Rationale is recorded in `config.example.yaml` (letting per-service values
+  partially override a WAN profile is how you get LAN timeouts over a WAN).
+- **Version floor** on the SDK rather than a pin, matching the rest of
+  `pyproject.toml`.
+- Explain-back was considered but deliberately not written into code comments.
+  The precedence rule survives in `config.example.yaml`; the readiness and
+  auth-timing findings are in `NOTES.md` § "Python SDK gotchas (4.6.2)".
+
+Agent-side defects this lesson surfaced (all fixed, all logged in NOTES.md):
+
+- `ServiceType` enum values asserted from memory (`kv`/`n1ql`/`fts`) rather
+  than introspected (`key_value`/`query`/`search`) — failed Matt's correct code.
+- Rubric items that no test enforced, so a wrong implementation went green.
+- `git add -A` swept Matt's in-progress file into an agent commit.
+- The integration fixture called `load_config()`, so an unset `NANOGPT_API_KEY`
+  skipped the whole suite over an unrelated config key.
 
