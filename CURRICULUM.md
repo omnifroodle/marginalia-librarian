@@ -65,7 +65,7 @@ and connection-string handling, and the Phase 2 design memo.
 |---|---|---|---|
 | 0 | Environment: cluster init + Capella checklist | **done** (local; Capella checklist outstanding) | 2026-07-30 |
 | 1 | Cluster connection + config plumbing | **done** | 2026-07-30 |
-| 2 | Bucket/scope/collection management | pending | |
+| 2 | Bucket/scope/collection management | **scaffolded** | briefed 2026-07-30 |
 | 3 | Single-document KV upsert | pending | |
 | 4 | Bulk operations | pending | |
 | 5 | Delete + re-ingest semantics | pending | |

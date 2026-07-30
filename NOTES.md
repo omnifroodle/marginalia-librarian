@@ -83,6 +83,36 @@ the instructor to keep this).
   in-progress `client.py` into an agent commit, violating "Matt commits his own
   lesson code with his own commit message." Recovered with `git reset --soft
   HEAD~1`. **Rule: agent commits always name explicit paths, never `-A`/`.`**
+- **2026-07-30 — dry-run the scaffold against a throwaway implementation.**
+  Lesson 1 established "verify SDK literals by introspection." Lesson 2 showed
+  that isn't enough: the scaffold asserted `status()` must report an exact
+  document count immediately after a write, and a probe had seemed to confirm
+  `scan_consistency=request_plus` delivered it. It doesn't — the probe's
+  earlier `sleep`s had let the metadata converge before the `request_plus`
+  query ran, and the real answer is that *no* unindexed query can be exact
+  (see the counting table below). Matt would have spent a round trying to
+  satisfy an impossible test.
+
+  Caught it by writing a reference `CollectionManager` in the scratchpad — a
+  pytest plugin that rebinds `librarian.cb.manager.CollectionManager` before
+  collection, so the suite runs against it without a line entering the repo:
+
+  ```bash
+  PYTHONPATH=<scratchpad> pytest -m integration -q -p refimpl_plugin
+  ```
+
+  12 of 13 passed; the 13th was the impossible one. **Rule: every acceptance
+  scaffold gets run green against a throwaway implementation before handoff.**
+  It stays on the agent's side of the hard rule (outside the repo, never shown
+  to Matt, deleted after), and it is the only thing that reliably distinguishes
+  "this test is hard" from "this test is wrong."
+- **2026-07-30 — a failing probe is worth more than a passing one.** Both
+  Lesson 2 corrections came from measurements that contradicted a plausible
+  belief (`request_plus` fixes counts; collection creation needs a readiness
+  wait). Probes written to *confirm* an expectation kept confirming it. The
+  ones that paid were the ones that varied a condition — count at four
+  different delays, six different count strategies — because those show the
+  shape of the behaviour rather than one point on it.
 
 ---
 
@@ -161,6 +191,53 @@ Unrecognized keys are dropped, not rejected — which is why
 measures wall-clock against an unroutable address (TEST-NET-1, `192.0.2.1`)
 instead of asserting on the options object.
 
+## Collection management (4.6.2) — measured, Lesson 2
+
+`bucket.collections()` → the SDK's own `CollectionManager`.
+
+- `create_collection(scope_name, collection_name, settings=None, *options)`.
+  The `CollectionSpec` overload is deprecated as of 4.1.9 — don't reach for it.
+- Exception names, for tests that assert through the MRO:
+  `ScopeAlreadyExistsException`, `ScopeNotFoundException`,
+  `CollectionAlreadyExistsException`, `CollectionNotFoundException`,
+  `BucketNotFoundException`, and `KeyspaceNotFoundException` (SQL++ against a
+  collection that doesn't exist).
+- **`cluster.bucket("does-not-exist")` raises immediately** (~0.01s,
+  `BucketNotFoundException`) — the handle is not lazy.
+- **`get_all_scopes()` includes `_system`** (collections `_query`, `_mobile`)
+  alongside `_default`. Anything that reports "the collections in this bucket"
+  has to filter to the ones it owns.
+- **`_default` scope cannot be dropped**: HTTP 400
+  `{"errors":{"_":"Deleting _default scope is not allowed"}}`, surfaced as
+  `UnsupportedOperation` — a name with no "scope" in it. So "reset = drop the
+  scope and recreate" is not a viable general strategy; drop collections.
+- **No KV propagation delay on this single-node cluster.** A collection is
+  usable for KV upsert ~1ms after `create_collection` returns, on a cold
+  cluster handle too. The window is real on multi-node/Capella; don't conclude
+  from a local green test that it doesn't exist.
+
+### Counting documents lags, and no option fixes it
+
+Measured immediately after 300 KV upserts into a fresh, unindexed collection:
+
+| query | result |
+|---|---|
+| `COUNT(*)`, default consistency | 242 / 300 |
+| `COUNT(*)`, `request_plus` | 214 / 300 |
+| `COUNT(META().id)`, `request_plus` | 241 / 300 |
+| `COUNT(*) WHERE META().id IS NOT MISSING`, `request_plus` | 287 / 300 |
+| `COUNT(*)` **with a primary index**, `request_plus` | **300 / 300** |
+
+`COUNT(*)` on an unindexed collection is served by a `CountScan` operator
+reading collection metadata, which trails the writes; adding a `WHERE` forces
+a sequential scan, which is closer but still doesn't participate in
+`request_plus`'s mutation-token protocol. **Accurate counts require an index**
+— i.e. Lesson 5. It converges in well under a second, so tests poll rather than
+asserting instantly (`test_l02_manager.py::test_status_counts_documents`).
+
+Do not spend another session rediscovering that `request_plus` is the fix. It
+isn't.
+
 ## Local Couchbase cluster
 
 ```bash
@@ -189,6 +266,19 @@ Gotchas seen on this machine:
   `/pools`, which starts returning 401 once the cluster has credentials, and
   `curl -sf` treats 401 as failure. Now probes `/ui/index.html`, which is 200
   in both states.
+- **Editing the healthcheck in docker-compose.yml does nothing to a running
+  container.** The healthcheck is baked in at container *creation*, so a
+  container that predates the fix keeps failing forever (seen 2026-07-30:
+  `Up 5 hours (unhealthy)`, `FailingStreak 3250`, exit code 22 = HTTP >= 400,
+  while `curl /ui/index.html` returned 200 by hand). Confirm what the container
+  actually has before debugging the server:
+
+  ```bash
+  docker inspect --format '{{json .Config.Healthcheck.Test}}' $(docker compose ps -q couchbase)
+  ```
+
+  Fix is a recreate, not a restart: `docker compose up -d --force-recreate`.
+  The data volume survives; the manual cluster init does not need redoing.
 
 ## Credentials for integration tests
 
@@ -211,7 +301,9 @@ config block — see `Config.apply_env_overrides`.
 `config.yaml` is gitignored; copy `config.example.yaml`. It is **not** required
 for the integration suite (fixtures build a `Config` from env) — only for the
 CLI and the API. If you do keep one, the fixtures will read `couchbase.password`
-from it, so nothing needs exporting.
+from it, so nothing needs exporting. `env-check.sh` checks both places and says
+which one it used (it used to look only at the env var, and reported "tests
+will skip" on a machine where they were passing).
 
 Gotcha (fixed 2026-07-30): the fixtures interpolate **only** the `couchbase:`
 block, not the whole file. `load_config()` resolves every `${VAR}` in

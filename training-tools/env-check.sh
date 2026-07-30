@@ -57,14 +57,36 @@ case "$code" in
 esac
 
 echo "== credentials =="
+# The env var is only one of two places a password can live: the integration
+# fixtures also read couchbase.password out of the gitignored config.yaml
+# (tests/integration/conftest.py). Checking only the env var reports "tests
+# will skip" at a machine where they run fine — a false alarm that costs a
+# session real time. Same resolution order the fixtures use: env wins.
+CRED_SRC="LIBRARIAN_TEST_COUCHBASE_PASSWORD"
+if [ -z "$PASS" ] && [ -f config.yaml ] && [ -x .venv/bin/python ]; then
+    PASS=$(.venv/bin/python -c '
+import sys, yaml
+try:
+    cb = (yaml.safe_load(open("config.yaml")) or {}).get("couchbase") or {}
+except Exception:
+    sys.exit(0)
+pw = str(cb.get("password") or "")
+# ${VAR} placeholders are resolved from the environment at load time; an
+# unresolved one is not a usable password.
+print("" if pw.startswith("${") else pw)
+' 2>/dev/null || true)
+    [ -n "$PASS" ] && CRED_SRC="config.yaml"
+fi
+
 if [ -z "$PASS" ]; then
-    bad "LIBRARIAN_TEST_COUCHBASE_PASSWORD unset — integration tests will skip"
+    bad "no password — export LIBRARIAN_TEST_COUCHBASE_PASSWORD or set couchbase.password in config.yaml (integration tests will skip)"
 else
+    ok "password from $CRED_SRC"
     auth_code=$(curl -s -o /dev/null -w '%{http_code}' -m 3 -u "$USER_:$PASS" "http://$HOST:$PORT/pools/default" || echo 000)
     if [ "$auth_code" = "200" ]; then
         ok "authenticated as $USER_"
     else
-        bad "auth failed for $USER_ (HTTP $auth_code) — check LIBRARIAN_TEST_COUCHBASE_PASSWORD"
+        bad "auth failed for $USER_ (HTTP $auth_code) — check the password in $CRED_SRC"
     fi
 fi
 
