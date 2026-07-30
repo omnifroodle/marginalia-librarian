@@ -106,6 +106,14 @@ the instructor to keep this).
   It stays on the agent's side of the hard rule (outside the repo, never shown
   to Matt, deleted after), and it is the only thing that reliably distinguishes
   "this test is hard" from "this test is wrong."
+- **2026-07-30 — briefs archived as their own artifact** (`docs/briefs/`), at
+  Matt's request: "it would be fun to record these briefs somewhere for review
+  later if I want to use this approach again." Writing the archive's README
+  forced the brief structure to be named rather than improvised per lesson, and
+  named it in terms of *what each section prevents* — which is a better test of
+  whether a section earns its place than "does a brief usually have one." The
+  split that fell out: brief = teaching document (`docs/briefs/`), record =
+  training state (`CURRICULUM.md` § "Lesson N — record").
 - **2026-07-30 — a failing probe is worth more than a passing one.** Both
   Lesson 2 corrections came from measurements that contradicted a plausible
   belief (`request_plus` fixes counts; collection creation needs a readiness
