@@ -21,9 +21,13 @@ from librarian.config import Config
 
 pytestmark = pytest.mark.lesson(1)
 
-# The SDK reports services as a ServiceType enum whose values are the wire
-# names: Data = "kv", Query = "n1ql", Search = "fts".
-CORE_SERVICES = {"kv", "n1ql", "fts"}
+# Ping keys its report by `couchbase.diagnostics.ServiceType`. Note that the
+# enum's *values* are not the wire/REST names you see in cluster APIs and docs
+# ("kv", "n1ql", "fts") — the Python SDK spells them out:
+#   KeyValue="key_value"  Query="query"  Search="search"
+#   Management="management"  View="view"  Analytics="analytics"  Eventing="eventing"
+# Management and View show up on any node and aren't ours to care about.
+CORE_SERVICES = {"key_value", "query", "search"}
 
 
 def _enum_value(v) -> str:

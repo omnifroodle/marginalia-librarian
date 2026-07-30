@@ -42,6 +42,18 @@ the instructor to keep this).
   to Matt ("either implementation accepted if the reasoning is sound"), and
   pre-written tests would pre-decide those. Shared *fixtures* and helpers can
   still be built ahead of time; test content stays just-in-time.
+- **2026-07-30 — scaffold bug: SDK vocabulary asserted from memory.** The
+  Lesson 1 ping test asserted service names `{"kv", "n1ql", "fts"}` — those are
+  the *wire/REST* names, and the Python SDK's `ServiceType` enum values are
+  `key_value` / `query` / `search`. Matt's correct implementation failed a
+  wrong test, which is the worst failure mode in this loop: it costs him a
+  debugging round on someone else's mistake and undermines trust in the
+  scaffold. **Rule going forward: any SDK-specific literal in a scaffold
+  (enum values, exception names, attribute names) gets verified against the
+  installed SDK by introspection before the test is committed** — not recalled.
+  Deciding to write tests without importing the SDK does not license guessing
+  about it. Cheap to check:
+  `python -c "from couchbase.diagnostics import ServiceType; print({s.name: s.value for s in ServiceType})"`
 
 ---
 
