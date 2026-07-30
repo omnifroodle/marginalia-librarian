@@ -118,6 +118,108 @@ def test_index_prefix_default_and_override(tmp_path):
     assert ix.pipeline == "marginalia-hybrid-search"
 
 
+# ── couchbase config plumbing (Lesson 1) ──────────────────────────────────────
+# These stay in this file rather than a test_l01_*.py: they cover the shared
+# Config class, and splitting one class's tests across files by lesson would
+# scatter them permanently. Integration tests, which are genuinely per-lesson
+# and short-lived, get lesson-numbered files instead.
+
+
+@pytest.mark.lesson(1)
+def test_couchbase_defaults(tmp_path):
+    p = _write_config(tmp_path, """
+        models:
+          tree_generation: "m"
+          reasoning: "m"
+    """)
+    cfg = load_config(p)
+    assert cfg.couchbase_connection_string == "couchbase://localhost"
+    assert cfg.couchbase_username == "Administrator"
+    assert cfg.couchbase_password == ""
+    assert cfg.couchbase_bucket == "librarian"
+    assert cfg.couchbase_scope == "_default"
+    # SDK defaults, so an absent timeouts block changes nothing.
+    assert cfg.couchbase_connect_timeout == 10.0
+    assert cfg.couchbase_kv_timeout == 2.5
+    assert cfg.couchbase_query_timeout == 75.0
+    assert cfg.couchbase_search_timeout == 75.0
+    assert cfg.couchbase_timeout_profile is None
+    assert cfg.couchbase_cert_path is None
+
+
+@pytest.mark.lesson(1)
+def test_couchbase_password_interpolated_from_env(tmp_path, monkeypatch):
+    # Credentials arrive by reference, never as a literal in a committed file.
+    monkeypatch.setenv("TEST_CB_PASSWORD", "hunter2")
+    p = _write_config(tmp_path, """
+        models:
+          tree_generation: "m"
+          reasoning: "m"
+        couchbase:
+          connection_string: "couchbase://cbnode"
+          username: "librarian_app"
+          password: "${TEST_CB_PASSWORD}"
+          bucket: "demo"
+          scope: "main"
+    """)
+    cfg = load_config(p)
+    assert cfg.couchbase_password == "hunter2"
+    assert cfg.couchbase_connection_string == "couchbase://cbnode"
+    assert cfg.couchbase_username == "librarian_app"
+    assert cfg.couchbase_bucket == "demo"
+    assert cfg.couchbase_scope == "main"
+
+
+@pytest.mark.lesson(1)
+def test_couchbase_capella_style_config(tmp_path):
+    # The Capella shape (Lesson 13): TLS scheme + WAN timeout profile. Only the
+    # connection string distinguishes the deployment.
+    p = _write_config(tmp_path, """
+        models:
+          tree_generation: "m"
+          reasoning: "m"
+        couchbase:
+          connection_string: "couchbases://cb.abc123.cloud.couchbase.com"
+          timeout_profile: "wan_development"
+          cert_path: "/etc/ssl/couchbase-ca.pem"
+          timeouts:
+            connect: 20
+            kv: 5
+            query: 120
+            search: 120
+    """)
+    cfg = load_config(p)
+    assert cfg.couchbase_connection_string.startswith("couchbases://")
+    assert cfg.couchbase_timeout_profile == "wan_development"
+    assert cfg.couchbase_cert_path == Path("/etc/ssl/couchbase-ca.pem")
+    assert cfg.couchbase_connect_timeout == 20.0
+    assert cfg.couchbase_kv_timeout == 5.0
+    assert cfg.couchbase_query_timeout == 120.0
+    assert cfg.couchbase_search_timeout == 120.0
+
+
+@pytest.mark.lesson(1)
+def test_couchbase_env_overrides(tmp_path, monkeypatch):
+    # Lets the integration suite and containers point at a cluster without
+    # editing (or even having) a config.yaml.
+    monkeypatch.setenv("COUCHBASE_CONNECTION_STRING", "couchbase://otherhost")
+    monkeypatch.setenv("COUCHBASE_USERNAME", "envuser")
+    monkeypatch.setenv("COUCHBASE_PASSWORD", "envpass")
+    p = _write_config(tmp_path, """
+        models:
+          tree_generation: "m"
+          reasoning: "m"
+        couchbase:
+          connection_string: "couchbase://from-file"
+          username: "fileuser"
+          password: "filepass"
+    """)
+    cfg = load_config(p)
+    assert cfg.couchbase_connection_string == "couchbase://otherhost"
+    assert cfg.couchbase_username == "envuser"
+    assert cfg.couchbase_password == "envpass"
+
+
 def test_vault_root(tmp_path):
     p = _write_config(tmp_path, """
         models:

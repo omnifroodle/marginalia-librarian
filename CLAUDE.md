@@ -21,11 +21,31 @@ test instead. You write tests, fixtures, stubs, explanations, and
 non-Couchbase plumbing. You review Matt's code against the lesson rubric; you
 never "just fix it".
 
+This project is also an test of this process for helping users learn the ropes for CouchBase. As an instructor please keep notes on what is working and what isn't working in this process in the NOTES.md file. 
+
+## ⚠️ Never re-derive the environment — NOTES.md + training-tools/
+
+Setup, cluster state, credentials, and any other machine-level fiddliness are
+**already written down**. Sessions must not burn tokens rediscovering them, and
+must not leave a discovery undocumented.
+
+```bash
+./training-tools/env-check.sh      # read-only: venv, SDK, container, cluster init, creds, services, buckets
+./training-tools/dev-setup.sh      # idempotent venv bootstrap (run when env-check says to)
+```
+
+- Run `env-check.sh` at session start instead of probing by hand.
+- **Anything repetitive or environmental you figure out goes straight into
+  `NOTES.md`** (runbook + gotchas + the process journal) and, if it is
+  mechanical and re-runnable, into `training-tools/` as a script. Doing the
+  investigation twice is the failure mode this rule exists to prevent.
+- Keep `training-tools/` free of Couchbase SDK code — the hard rule applies
+  there too. Shell/REST/docker plumbing only.
+
 ## Commands
 
 ```bash
-source .venv/bin/activate          # plain venv + pip, no uv
-pip install -e ".[api,dev]"
+source .venv/bin/activate          # plain venv + pip, no uv (see training-tools/dev-setup.sh)
 python -m pytest tests/ -q         # unit tests (integration excluded by default)
 python -m pytest -m integration    # live-Couchbase tests (needs docker compose up)
 librarian init-indexes | status | ingest PATH [--force] | query "..." [--json] | serve [--port]
@@ -35,8 +55,10 @@ docker compose up -d               # local Couchbase Server EE (see file header
 
 Config: `config.yaml` (gitignored; copy from `config.example.yaml`). Needs
 `NANOGPT_API_KEY` in the env. Corpus root: `library.vault_root` (requires
-`/Volumes/vault` mounted for ingestion). First CLI/pytest run after a fresh
-venv is slow (litellm import); sub-second after.
+`/Volumes/vault` mounted for ingestion). Integration tests need no
+`config.yaml` — they build a `Config` from `LIBRARIAN_TEST_COUCHBASE_*` env
+vars (NOTES.md). First CLI/pytest run after a fresh venv is slow (litellm
+import); sub-second after.
 
 ## Architecture notes for the migration
 
@@ -54,13 +76,9 @@ venv is slow (litellm import); sub-second after.
 
 ## Environment gotchas
 
-- **This repo lives in iCloud-synced ~/Documents.** If a process hangs in a
-  blocking read (0 CPU, no network), suspect iCloud eviction:
-  `brctl download <path>`, then restart. Fresh venvs are the usual victims.
-- The old marginalia OpenSearch data still lives on the shared cluster at
-  localhost:9200 (belongs to another project's docker stack — never touch the
-  unprefixed indexes). This repo's Couchbase compose stack is independent of
-  it; OpenSearch code leaves this repo entirely at Lesson 11.
+- **`NOTES.md` is the full list** (cluster init state, healthcheck, ulimits
+  warning, test credentials, reuse notes). Read it before debugging anything
+  environmental; add to it after.
 - Capella access: see `docs/capella-setup.md`. Capella credentials live in
   `config.capella.yaml` (gitignored) / env vars — never in git.
 
@@ -75,7 +93,6 @@ venv is slow (litellm import); sub-second after.
 
 ## Provenance
 
-Extracted 2026-07-30 from `~/Documents/code/marginalia` (`librarian/`
-subtree; full history remains there). The vendored PageIndex fork is
+The vendored PageIndex fork is
 `src/librarian/pageindex/`; local changes vs upstream are listed in its
 `__init__.py`.

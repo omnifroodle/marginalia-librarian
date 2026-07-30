@@ -43,9 +43,11 @@ services:
     volumes:
       - couchbase-data:/opt/couchbase/var
     healthcheck:
-      # /pools answers 200 once the management API is actually serving,
-      # including on an uninitialized node — this is the "UI is ready" signal.
-      test: ["CMD", "curl", "-sf", "http://localhost:8091/pools"]
+      # Must answer 200 in BOTH states. /pools looks right but starts returning
+      # 401 the moment the cluster has admin credentials, so `curl -sf` reports
+      # a healthy initialized cluster as unhealthy forever. /ui/index.html is
+      # served unauthenticated before and after init.
+      test: ["CMD", "curl", "-sf", "http://localhost:8091/ui/index.html"]
       interval: 5s
       timeout: 3s
       retries: 60

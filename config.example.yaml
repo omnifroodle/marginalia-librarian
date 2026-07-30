@@ -62,6 +62,27 @@ opensearch:
   #   username: "admin"
   #   password: "${OPENSEARCH_PASSWORD}"
 
+couchbase:
+  # The scheme picks the deployment and nothing else in the codebase branches
+  # on it: couchbase:// for local/self-managed, couchbases:// for TLS (Capella).
+  connection_string: "couchbase://localhost"
+  username: "Administrator"
+  # Never a literal here — ${VAR} interpolation keeps credentials out of git.
+  password: "${COUCHBASE_PASSWORD}"
+  bucket: "librarian"
+  scope: "_default"
+  # Seconds. Omit the block entirely to take the SDK's own defaults (shown).
+  # timeouts:
+  #   connect: 10
+  #   kv: 2.5
+  #   query: 75
+  #   search: 75
+  # Named SDK timeout profile; set to "wan_development" for Capella (Lesson 13).
+  # timeout_profile: "wan_development"
+  # CA certificate for a self-signed TLS cluster. Capella's root CA ships with
+  # the SDK, so leave this unset there. Not a switch for disabling verification.
+  # cert_path: "/etc/ssl/couchbase-ca.pem"
+
 library:
   # Root the corpus lives under; source_path in the index is relative to this,
   # and the /assets endpoint serves original files from it.

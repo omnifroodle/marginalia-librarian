@@ -143,6 +143,76 @@ class Config:
             return (auth["username"], auth["password"])
         return None
 
+    # ── couchbase ─────────────────────────────────────────────────────────────
+
+    @property
+    def couchbase_connection_string(self) -> str:
+        """Cluster address and scheme.
+
+        `couchbase://host` for a local/self-managed cluster, `couchbases://host`
+        for TLS (Capella). This single knob selects the deployment — nothing
+        downstream should branch on "am I on Capella".
+        """
+        return self._data.get("couchbase", {}).get(
+            "connection_string", "couchbase://localhost"
+        )
+
+    @property
+    def couchbase_username(self) -> str:
+        return self._data.get("couchbase", {}).get("username", "Administrator")
+
+    @property
+    def couchbase_password(self) -> str:
+        return self._data.get("couchbase", {}).get("password", "")
+
+    @property
+    def couchbase_bucket(self) -> str:
+        return self._data.get("couchbase", {}).get("bucket", "librarian")
+
+    @property
+    def couchbase_scope(self) -> str:
+        return self._data.get("couchbase", {}).get("scope", "_default")
+
+    # Timeouts are seconds (floats) so that config stays free of SDK types;
+    # the caller converts to timedelta at the boundary. Defaults match the
+    # Python SDK's own defaults, so an absent `couchbase.timeouts` block
+    # changes nothing.
+
+    @property
+    def couchbase_connect_timeout(self) -> float:
+        return float(self._data.get("couchbase", {}).get("timeouts", {}).get("connect", 10.0))
+
+    @property
+    def couchbase_kv_timeout(self) -> float:
+        return float(self._data.get("couchbase", {}).get("timeouts", {}).get("kv", 2.5))
+
+    @property
+    def couchbase_query_timeout(self) -> float:
+        return float(self._data.get("couchbase", {}).get("timeouts", {}).get("query", 75.0))
+
+    @property
+    def couchbase_search_timeout(self) -> float:
+        return float(self._data.get("couchbase", {}).get("timeouts", {}).get("search", 75.0))
+
+    @property
+    def couchbase_timeout_profile(self) -> str | None:
+        """Named SDK timeout profile, e.g. "wan_development" for Capella.
+
+        None means "use the explicit timeouts above". Applied by the client
+        factory, not here — config carries the choice, not the mechanism.
+        """
+        return self._data.get("couchbase", {}).get("timeout_profile") or None
+
+    @property
+    def couchbase_cert_path(self) -> Path | None:
+        """CA certificate for verifying a TLS cluster; None = SDK defaults.
+
+        Needed only for a self-signed/self-managed TLS cluster. Capella's root
+        CA ships with the SDK. Never a knob for *disabling* verification.
+        """
+        p = self._data.get("couchbase", {}).get("cert_path")
+        return Path(p) if p else None
+
     # ── library (source files) ────────────────────────────────────────────────
 
     @property
@@ -252,6 +322,12 @@ class Config:
             self._data.setdefault("litellm", {})["api_key"] = api_key
         if os_host := os.environ.get("OPENSEARCH_HOST"):
             self._data.setdefault("opensearch", {})["host"] = os_host
+        if cb_conn := os.environ.get("COUCHBASE_CONNECTION_STRING"):
+            self._data.setdefault("couchbase", {})["connection_string"] = cb_conn
+        if cb_user := os.environ.get("COUCHBASE_USERNAME"):
+            self._data.setdefault("couchbase", {})["username"] = cb_user
+        if cb_pass := os.environ.get("COUCHBASE_PASSWORD"):
+            self._data.setdefault("couchbase", {})["password"] = cb_pass
         if vault := os.environ.get("LIBRARIAN_VAULT_ROOT"):
             self._data.setdefault("library", {})["vault_root"] = vault
 
