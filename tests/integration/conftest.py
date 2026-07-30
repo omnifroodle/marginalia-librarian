@@ -11,6 +11,7 @@ web UI at http://localhost:8091 (see docker-compose.yml header).
 
 from __future__ import annotations
 
+import os
 import socket
 from pathlib import Path
 
@@ -18,8 +19,11 @@ import pytest
 
 _HERE = Path(__file__).parent
 
-COUCHBASE_MGMT_HOST = "localhost"
-COUCHBASE_MGMT_PORT = 8091
+# The cluster may be remote (e.g. the `office` docker host) — override with
+# LIBRARIAN_TEST_COUCHBASE_HOST. Env *reads* are fine; writes are what
+# test_hygiene.py bans.
+COUCHBASE_MGMT_HOST = os.environ.get("LIBRARIAN_TEST_COUCHBASE_HOST", "localhost")
+COUCHBASE_MGMT_PORT = int(os.environ.get("LIBRARIAN_TEST_COUCHBASE_PORT", "8091"))
 
 
 def _cluster_reachable(timeout: float = 1.0) -> bool:
@@ -30,6 +34,12 @@ def _cluster_reachable(timeout: float = 1.0) -> bool:
             return True
     except OSError:
         return False
+
+
+@pytest.fixture
+def cluster_address() -> tuple[str, int]:
+    """(host, port) of the cluster management API the harness is pointed at."""
+    return COUCHBASE_MGMT_HOST, COUCHBASE_MGMT_PORT
 
 
 def pytest_collection_modifyitems(config, items):
@@ -43,7 +53,8 @@ def pytest_collection_modifyitems(config, items):
             reason=(
                 "No Couchbase cluster reachable on "
                 f"{COUCHBASE_MGMT_HOST}:{COUCHBASE_MGMT_PORT} — "
-                "run `docker compose up -d` and initialize it via the web UI"
+                "run `docker compose up -d` (or set LIBRARIAN_TEST_COUCHBASE_HOST "
+                "for a remote cluster) and initialize it via the web UI"
             )
         )
         for item in local:
