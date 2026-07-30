@@ -111,6 +111,20 @@ Baseline 2026-07-30: **113 unit passed, 1 integration passed.**
 Integration tests skip cleanly (with instructions) when nothing is listening on
 the cluster's management port — see `tests/integration/conftest.py`.
 
+## Outstanding risk: the PDF ingest path
+
+**2026-07-30 — PyPDF2 replaced by `pypdf`.** PyPDF2 3.0.1 was the project's
+final release (renamed to `pypdf`, unmaintained since 2022). The swap is
+mechanical and `tests/test_pdf_extraction.py` covers the API surface the
+vendored fork uses, but that test reads a PDF it synthesized itself. **Nothing
+has run a real ingest against `/Volumes/vault` on this version of the code**,
+and the corpus contains scanned, encrypted, malformed and CJK PDFs.
+
+When ingestion becomes runnable again (Lesson 11 wiring, realistically), do one
+full ingest of a known-good PDF *before* trusting a batch, and check page text
+and title extraction specifically. Details and the provenance note are in
+`src/librarian/pageindex/__init__.py`.
+
 ## Python SDK gotchas (4.6.2)
 
 Three ways the options objects fail *silently*. All verified by measurement on

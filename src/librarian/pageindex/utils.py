@@ -7,7 +7,7 @@ import email.utils
 import time
 import random
 import json
-import PyPDF2
+import pypdf
 import asyncio
 import pymupdf
 from dataclasses import dataclass
@@ -361,7 +361,7 @@ def get_pdf_name(pdf_path):
     if isinstance(pdf_path, str):
         pdf_name = os.path.basename(pdf_path)
     elif isinstance(pdf_path, BytesIO):
-        pdf_reader = PyPDF2.PdfReader(pdf_path)
+        pdf_reader = pypdf.PdfReader(pdf_path)
         meta = pdf_reader.metadata
         pdf_name = meta.title if meta and meta.title else 'Untitled'
         pdf_name = sanitize_filename(pdf_name)
@@ -473,9 +473,10 @@ def add_preface_if_needed(data):
 
 
 
-def get_page_tokens(pdf_path, model=None, pdf_parser="PyPDF2"):
-    if pdf_parser == "PyPDF2":
-        pdf_reader = PyPDF2.PdfReader(pdf_path)
+def get_page_tokens(pdf_path, model=None, pdf_parser="pypdf"):
+    # "PyPDF2" still accepted: upstream's name for what is now pypdf.
+    if pdf_parser in ("pypdf", "PyPDF2"):
+        pdf_reader = pypdf.PdfReader(pdf_path)
         page_list = []
         for page_num in range(len(pdf_reader.pages)):
             page = pdf_reader.pages[page_num]
