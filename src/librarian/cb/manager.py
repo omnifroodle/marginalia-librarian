@@ -2,15 +2,19 @@
 
 The analogue of `opensearch/index_manager.py`: create the storage layout, tear
 it down, and report on it. `librarian init-indexes` and `librarian status` are
-the two CLI commands that consume this (rewired in Lesson 11 — leave cli.py
-alone for now).
-
-Acceptance tests: tests/integration/test_l02_manager.py
+the two CLI commands that consume this .
 """
 
 from __future__ import annotations
 
 import logging
+
+from couchbase.exceptions import (
+    CollectionAlreadyExistsException,
+    CollectionNotFoundException,
+    ScopeAlreadyExistsException,
+    ScopeNotFoundException,
+)
 
 from ..config import Config
 from .names import ALL_COLLECTIONS
@@ -27,11 +31,6 @@ class CollectionManager:
     on purpose, since it plays the same role `IndexManager` plays for
     OpenSearch, but be precise in your own code about which one a variable
     holds.
-
-    Scope of responsibility — the bucket is NOT yours to create. `__init__`
-    and the methods below assume `config.couchbase_bucket` already exists and
-    should fail loudly if it doesn't. See the BRIEF for why that line sits
-    where it does.
     """
 
     def __init__(self, cluster, config: Config) -> None:
@@ -40,11 +39,11 @@ class CollectionManager:
             cluster: a live `Cluster` from `cb.client.create_cluster`.
             config:  supplies `couchbase_bucket` and `couchbase_scope`.
 
-        Hold whatever handles you need here rather than re-deriving them in
-        every method — the Lesson 3 rubric line "bucket/scope/collection
-        references held, not re-looked-up per call" starts being true here.
         """
-        raise NotImplementedError
+        self.bucket_name = config.couchbase_bucket
+        self.scope_name = config.couchbase_scope
+        self.cluster = cluster
+        self.collections = cluster.bucket(self.bucket_name).collections()
 
     def ensure_collections(self) -> list[tuple[str, str]]:
         """Create the scope (if needed) and all of `ALL_COLLECTIONS`.
@@ -63,7 +62,30 @@ class CollectionManager:
         Note the scope does not appear in the returned list (log it instead);
         the CLI reports on collections.
         """
-        raise NotImplementedError
+
+        # check for our scope, create if not
+        # the most common scope is `_default`, which should always exist,
+        # if not something is very wrong with the cluster. Trying to create it
+        # will fail, we intentionally don't check for this case and let the exception bubble up.
+        if self._collection_names() is None:
+            self.collections.create_scope(self.scope_name)
+            _log.info("Created scope: %s", self.scope_name)
+        else:
+            _log.debug("Scope %s already exists", self.scope_name)
+
+        # verify each collection exists, create if not
+        results = []
+        for collection_name in ALL_COLLECTIONS:
+            try:
+                self.collections.create_collection(
+                    self.scope_name,
+                    collection_name
+                )
+                results.append((collection_name, "created"))
+            except CollectionAlreadyExistsException:
+                _log.debug("Collection %s already exists", collection_name)
+                results.append((collection_name, "skipped"))
+        return results
 
     def reset(self) -> list[tuple[str, str]]:
         """Drop every librarian collection and recreate it empty.
@@ -74,10 +96,22 @@ class CollectionManager:
         Returns:
             `(name, "dropped")` pairs followed by the result of
             `ensure_collections()`, mirroring `IndexManager.reset_all`.
-
-        There is a trap here that the tests will find; the BRIEF names it.
         """
-        raise NotImplementedError
+
+        results = []
+        for collection in ALL_COLLECTIONS:
+            try:
+                self.collections.drop_collection(
+                    self.scope_name,
+                    collection
+                )
+                _log.info("Dropped collection: %s", collection)
+                results.append((collection, "dropped"))
+            except (CollectionNotFoundException, ScopeNotFoundException) as e:
+                _log.debug("Collection %s does not exist or error: %s", collection, e)
+                results.append((collection, "skipped"))
+
+        return results + self.ensure_collections()
 
     def status(self) -> dict[str, dict]:
         """Report on each collection, keyed by name.
@@ -95,22 +129,28 @@ class CollectionManager:
         a missing collection is not an empty one, and reporting 0 for it hides
         a failed deploy.
 
-        The count is *approximate* and lags recent writes by a few hundred
-        milliseconds. That is not a defect in your implementation and it is not
-        fixable from here: with no index on the collection, the query service
-        answers `COUNT(*)` from collection metadata that trails the KV writes.
-        Measured on this cluster, 300 documents written and immediately counted
-        report somewhere around 210-290, and `scan_consistency=request_plus`
-        does not help (sequential scans don't participate in that protocol).
-        Lesson 5 adds a primary/GSI index, at which point the same query
-        becomes exact and this docstring gets to change.
-
-        Say so in the docstring you write. An operator reading `librarian
-        status` after an ingest needs to know whether a low number means data
-        loss or just lag, and this function is the only place that can tell
-        them.
+        Also note that `doc_count` is approximate and may lag behind recent writes.
         """
-        raise NotImplementedError
+        results = {}
+        live_collections = self._collection_names() or set()
+        for collection in ALL_COLLECTIONS:
+            if collection not in live_collections:
+                results[collection] = {"exists": False, "doc_count": None}
+            else:
+                # bucket_name comes from config, so it is assumed sanitized here
+                result = self.cluster.query(
+                    f"SELECT RAW COUNT(*) AS doc_count FROM `{self.bucket_name}`.`{self.scope_name}`.`{collection}`"
+                )
+                result = next(iter(result))
+                results[collection] = {"exists": True, "doc_count": result}
 
+        return results
 
+    def _collection_names(self) -> set[str] | None:
+        """Return the set of collection names that exist in the scope."""
+        for scope in self.collections.get_all_scopes():
+            if scope.name == self.scope_name:
+                return {c.name for c in scope.collections}
+        return None
+    
 __all__ = ["CollectionManager", "ALL_COLLECTIONS"]
