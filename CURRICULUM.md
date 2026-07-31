@@ -67,7 +67,7 @@ and connection-string handling, and the Phase 2 design memo.
 |---|---|---|---|
 | 0 | Environment: cluster init + Capella checklist | **done** (local; Capella checklist outstanding) | 2026-07-30 |
 | 1 | Cluster connection + config plumbing | **done** | 2026-07-30 |
-| 2 | Bucket/scope/collection management | **scaffolded** | briefed 2026-07-30 |
+| 2 | Bucket/scope/collection management | **done** | 2026-07-31 |
 | 3 | Single-document KV upsert | pending | |
 | 4 | Bulk operations | pending | |
 | 5 | Delete + re-ingest semantics | pending | |
@@ -565,3 +565,87 @@ Agent-side defects this lesson surfaced (all fixed, all logged in NOTES.md):
 - The integration fixture called `load_config()`, so an unset `NANOGPT_API_KEY`
   skipped the whole suite over an unrelated config key.
 
+
+## Lesson 2 — record (2026-07-31)
+
+**Done.** `0be4147` … `d748b04` — `src/librarian/cb/manager.py::CollectionManager`
+(`ensure_collections` / `reset` / `status`), plus `cb/names.py` (agent).
+123 unit passed, 17 integration passed (three consecutive clean runs),
+`ruff check .` clean. Brief: [`docs/briefs/lesson-02.md`](docs/briefs/lesson-02.md).
+
+### Decisions Matt made
+
+- **Idempotency is not one strategy — it is two.** Exception-driven for
+  collections (call `create_collection`, catch
+  `CollectionAlreadyExistsException`), check-then-create for the scope. The
+  asymmetry is deliberate and is the best answer this lesson produced: the most
+  likely configured scope is `_default`, which *cannot be created at all* —
+  `{"errors":{"name":"First character must not be _ or %"}}`, surfaced as
+  `InvalidArgumentException`. There is no exception you can catch there that
+  means "fine, it exists" without also meaning "your config is broken". The
+  check-then-create window is then closed by a narrow
+  `ScopeAlreadyExistsException` backstop, added deliberately after tracing what
+  two concurrent `init-indexes` runs would do (`d5af518` removed it, `d748b04`
+  put it back — the round trip was the point).
+- **Existence from the management API, counts from the query service.**
+  `status()` reads `get_all_scopes()` for existence and only then issues
+  `SELECT RAW COUNT(*)` against collections it knows are there. Driven by the
+  finding that `KeyspaceNotFoundException` cannot distinguish a missing
+  collection from a **deleted bucket** (same type, same server code 12003) — so
+  inferring existence from query failures would report a destroyed bucket as a
+  routine unprovisioned cluster. Matt raised this himself: "if it's a bucket we
+  should fail, something is very broken at that point."
+- **`reset()` drops collections, never the scope.** Required by `_default`
+  being undroppable, but the better justification is blast radius: anything
+  else living in the scope survives.
+- **Guarding destructive operations belongs to the adapter.** The manager
+  carries out instructions and makes them legible (`"dropped"` entries in the
+  return value, `_log.info` per drop); the CLI owes the confirmation prompt.
+  Consistent with the core-returns-data/adapters-stay-thin rule.
+- **Scope naming: deferred, deliberately.** Config keeps `_default` for now.
+  The case for a named scope (`librarian`) was argued and is recorded in this
+  session: the app cannot assume a dedicated bucket, since bucket creation is
+  the control plane's call and on Capella you may be handed a shared one;
+  scope-level RBAC grants cover collections added later, collection-level ones
+  need reissuing; and `_default` is the one scope that can never be dropped, so
+  choosing it permanently forfeits the clean reset path. Counter-argument: a
+  `librarian` scope inside a `librarian` bucket is redundant — which only holds
+  while you control the bucket name. **Revisit at Lesson 13 (Capella), where
+  the shared-bucket scenario becomes concrete.** Note also that an FTS index
+  spans collections within a *single* scope, so splitting user-authored data
+  (margin notes) into its own scope would permanently prevent one full-text
+  index over corpus + notes — verify that constraint in Lesson 7 before relying
+  on it.
+
+### Agent-side defects this lesson surfaced
+
+- **The scaffold asserted something impossible.** `status()` was specified to
+  report an exact count immediately after a write; no unindexed query can do
+  that, and `request_plus` does not help. Caught before handoff by running the
+  suite against a throwaway reference implementation — a practice now recorded
+  as a rule in NOTES.md and in the brief archive's README.
+- **A test gated readiness on one collection and asserted about three.**
+  Collections become visible to the query service independently, so
+  `test_status_reports_one_missing_collection_in_a_live_scope` failed on a
+  collection that existed. Also caught by the reference implementation, not by
+  reading.
+- **Two coverage holes Matt found, not the tests.** Partial provisioning
+  ("we aren't testing that", which was half right — the endpoints were tested,
+  the middle wasn't) and `reset()` against a never-provisioned scope. Both now
+  pinned.
+- **Sixteen passing tests agreed with a bug.** `status()` read
+  `get_all_scopes()[0]`; the list is ordered most-recently-created first, and
+  every fixture creates its scope moments before the test body runs, so `[0]`
+  was always the right scope by accident. Found by reading a line that looked
+  wrong despite green tests. **A suite whose fixtures all build state the same
+  way will systematically miss position-dependent bugs.**
+- **`env-check.sh` reported "integration tests will skip" on a machine where
+  they passed** — it checked only the env var, not `config.yaml`. Fixed.
+
+### Deferred
+
+- `[consider]` items left on the table by agreement: `self.collections` names a
+  `CollectionManager` rather than collections; the inert `AS doc_count` alias
+  under `SELECT RAW`; the `status()` docstring says the count lags but not that
+  Lesson 5's index is what fixes it.
+- The CLI still calls `opensearch/index_manager.py`. Rewiring is Lesson 11.

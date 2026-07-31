@@ -114,6 +114,24 @@ the instructor to keep this).
   whether a section earns its place than "does a brief usually have one." The
   split that fell out: brief = teaching document (`docs/briefs/`), record =
   training state (`CURRICULUM.md` § "Lesson N — record").
+- **2026-07-31 — green tests can agree with a bug.** `status()` read
+  `get_all_scopes()[0]` for two rounds while sixteen integration tests passed.
+  `get_all_scopes()` returns most-recently-created first, and *every* fixture
+  in the file creates its scope moments before the test body runs — so `[0]`
+  was the right scope in all sixteen, by coincidence. Found by reading a line
+  that looked wrong, not by any test. **Fixtures that all construct state the
+  same way produce a suite that is blind to order- and position-dependent
+  bugs.** Cheap countermeasure, now used: one test that deliberately breaks the
+  fixture's uniformity (`test_status_reads_the_configured_scope_not_whichever_is_first`
+  creates a decoy scope *after* the manager's).
+- **2026-07-31 — the review loop's best findings came from Matt.** Two of the
+  four coverage holes this lesson were his: "we aren't testing that" about
+  partial provisioning (half right — the endpoints were covered, the middle
+  wasn't), and asking what `KeyspaceNotFoundException` actually refers to,
+  which turned out to conflate a missing collection with a *deleted bucket*.
+  Both arrived as questions about the scaffold rather than about Couchbase.
+  Worth protecting: a brief that invites "is this test actually checking that?"
+  gets better tests than one that presents the suite as settled.
 - **2026-07-30 — a failing probe is worth more than a passing one.** Both
   Lesson 2 corrections came from measurements that contradicted a plausible
   belief (`request_plus` fixes counts; collection creation needs a readiness
