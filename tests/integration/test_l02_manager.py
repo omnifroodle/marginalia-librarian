@@ -336,6 +336,42 @@ def test_status_reports_one_missing_collection_in_a_live_scope(scoped_config):
     assert status[PAGE_CONTENT]["exists"] is True
 
 
+def test_status_reads_the_configured_scope_not_whichever_is_first(scoped_config):
+    """`status()` must find its scope by name, not by position.
+
+    `get_all_scopes()` returns most-recently-created first, and every fixture
+    in this file creates its scope moments before the test body runs — so an
+    implementation that reads `get_all_scopes()[0]` agrees with all of them by
+    accident. This test breaks that accident by creating another scope
+    afterwards, which is what any second deployment, concurrent test run, or
+    operator poking at the bucket does in real life.
+
+    The failure it guards against is silent: `status()` reports on a scope that
+    isn't yours, with no error anywhere.
+    """
+    cluster = create_cluster(scoped_config)
+    manager = CollectionManager(cluster, scoped_config)
+    manager.ensure_collections()
+
+    sdk = cluster.bucket(scoped_config.couchbase_bucket).collections()
+    decoy = f"test_l02_decoy_{uuid.uuid4().hex[:8]}"
+    sdk.create_scope(decoy)
+    try:
+        sdk.create_collection(decoy, TREE_NODES)  # deliberately only one of the three
+
+        status = manager.status()
+
+        assert set(status) == set(ALL_COLLECTIONS)
+        for name in ALL_COLLECTIONS:
+            assert status[name]["exists"] is True, (
+                f"{name} reported missing. status() is reading the wrong scope — "
+                f"{decoy!r} was created after {scoped_config.couchbase_scope!r} "
+                "and is now first in get_all_scopes()."
+            )
+    finally:
+        sdk.drop_scope(decoy)
+
+
 def test_status_counts_documents(scoped_config):
     """The count must be real, and must converge on the truth.
 
