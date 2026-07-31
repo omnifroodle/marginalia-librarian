@@ -237,6 +237,32 @@ instead of asserting on the options object.
   cluster handle too. The window is real on multi-node/Capella; don't conclude
   from a local green test that it doesn't exist.
 
+### Which exception means "not there" is not stable
+
+Measured 2026-07-31. "The thing you asked about is missing" arrives under
+different names depending on *which* level is missing and, for queries, on how
+recently the scope was created:
+
+| operation | situation | raises |
+|---|---|---|
+| `drop_collection` | collection missing, scope present | `CollectionNotFoundException` |
+| `drop_collection` | whole scope missing | `ScopeNotFoundException` |
+| `SELECT … FROM b.s.c` | scope missing | `ScopeNotFoundException` |
+| `SELECT … FROM b.s.c` | scope created <~2s ago, still empty | `ScopeNotFoundException` |
+| `SELECT … FROM b.s.c` | scope settled, collection missing | `KeyspaceNotFoundException` |
+
+Two consequences for any code that treats "missing" as a normal outcome:
+
+- The SDK reports the **outermost** missing level, so a handler narrowed to the
+  collection-level exception misses the empty-cluster case entirely.
+- The query path needs **both** `ScopeNotFoundException` and
+  `KeyspaceNotFoundException`. Catching only the latter passes a hand test on a
+  settled cluster and fails intermittently in CI, because a scope created
+  moments earlier is still invisible to the query service.
+
+`tests/integration/test_l02_manager.py::test_reset_provisions_an_unprovisioned_scope`
+exists to pin the first one.
+
 ### Counting documents lags, and no option fixes it
 
 Measured immediately after 300 KV upserts into a fresh, unindexed collection:

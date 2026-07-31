@@ -222,6 +222,30 @@ def test_reset_drops_and_recreates_empty_collections(scoped_config):
     )
 
 
+def test_reset_provisions_an_unprovisioned_scope(scoped_config):
+    """`init-indexes --reset` must be safe to run against a fresh cluster.
+
+    Nothing exists yet — no scope, no collections — and an operator reaching
+    for `--reset` on a cluster they believe is broken is a likely first move.
+    "Drop then create" has to tolerate there being nothing to drop.
+
+    The trap is that `drop_collection` raises `ScopeNotFoundException` here,
+    not `CollectionNotFoundException`: when the whole scope is absent the SDK
+    reports the outermost thing that's missing, so a handler narrowed to the
+    collection-level exception alone lets this through.
+    """
+    cluster = create_cluster(scoped_config)
+
+    results = CollectionManager(cluster, scoped_config).reset()
+
+    assert _collections_in(cluster, scoped_config) >= set(ALL_COLLECTIONS), (
+        "reset() on an empty scope left it unprovisioned"
+    )
+    assert [action for _, action in results].count("created") == len(ALL_COLLECTIONS), (
+        f"nothing existed, so every collection should end up 'created': {results}"
+    )
+
+
 def test_reset_works_in_the_default_scope(default_scope_config):
     """`_default` is the configured scope out of the box — reset must work there.
 
