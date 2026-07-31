@@ -43,7 +43,10 @@ dev = [
     # TestClient (fastapi.testclient) deprecated httpx and warns at import.
     "httpx>=0.27",
     "httpx2>=2.0",
+    # pyflakes is used through its API by tests/test_hygiene.py, so it stays a
+    # dependency in its own right even though ruff subsumes its checks.
     "pyflakes>=3.0",
+    "ruff>=0.16",
 ]
 
 [project.scripts]
@@ -55,6 +58,40 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.ruff]
+target-version = "py310"
+# The vendored PageIndex fork is upstream's code with a documented set of local
+# changes (see librarian/pageindex/__init__.py). Restyling it would make those
+# changes unreadable against upstream.
+extend-exclude = ["src/librarian/pageindex"]
+
+[tool.ruff.lint]
+# Deliberately narrow. These four are the rules that tests/test_hygiene.py
+# already enforces, or that came out of review often enough to be worth
+# automating — the point is that the editor and the test suite agree, not that
+# every stylistic opinion is turned on. Widen once this stays clean.
+#   F     pyflakes (what test_hygiene.py runs through the API)
+#   BLE   blind except — a handler wide enough to catch your own bugs will
+#         report them as somebody else's
+#   T20   print() outside the presentation layer
+#   G     logging format: lazy %s args, not f-strings built before the level check
+select = ["F", "BLE", "T20", "G"]
+
+[tool.ruff.lint.per-file-ignores]
+"src/librarian/cli.py" = ["T201", "BLE001"]  # presentation layer (uses click.echo)
+"tests/**" = ["BLE001"]             # fixture teardown catches broadly on purpose
+
+# BLE001 is scoped to cb/ exactly as tests/test_hygiene.py scopes it: the legacy
+# tree predates the rule and churning it would collide with the migration that
+# is deleting it. This list is therefore a shrinking one — opensearch/ goes in
+# Lesson 11 — and an entry here is a statement that the module is on its way
+# out, not that blind excepts are fine in it.
+"src/librarian/api/*" = ["BLE001"]
+"src/librarian/ingestion/*" = ["BLE001"]
+"src/librarian/notes/*" = ["BLE001"]
+"src/librarian/opensearch/*" = ["BLE001"]
+"src/librarian/query/*" = ["BLE001"]
 
 [tool.pytest.ini_options]
 markers = [

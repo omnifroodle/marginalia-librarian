@@ -48,6 +48,7 @@ must not leave a discovery undocumented.
 source .venv/bin/activate          # plain venv + pip, no uv (see training-tools/dev-setup.sh)
 python -m pytest tests/ -q         # unit tests (integration excluded by default)
 python -m pytest -m integration    # live-Couchbase tests (needs docker compose up)
+ruff check .                       # lint; config + rule rationale in pyproject.toml
 librarian init-indexes | status | ingest PATH [--force] | query "..." [--json] | serve [--port]
 docker compose up -d               # local Couchbase Server EE (see file header
                                    # for the one-time manual cluster init)
@@ -89,7 +90,8 @@ import); sub-second after.
 - No `print()` outside `cli.py`; library code uses `logging`, JSONL
   diagnostics only under configured `logging.dir`.
 - Core modules return structured data + typed `on_event` events; adapters stay
-  thin. Pyflakes-clean.
+  thin. Pyflakes-clean; `ruff check .` clean (`F`/`BLE`/`T20`/`G`, with `BLE`
+  scoped to `cb/` — same boundary the hygiene tests draw).
 
 ## Provenance
 

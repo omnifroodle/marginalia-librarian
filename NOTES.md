@@ -145,6 +145,19 @@ source .venv/bin/activate       # fish: source .venv/bin/activate.fish
 .venv/bin/python -m pytest -m integration -q  # live-cluster tests
 ```
 
+```bash
+.venv/bin/ruff check .                        # lint (VS Code: charliermarsh.ruff)
+.venv/bin/ruff check . --fix                  # apply the safe fixes
+```
+
+Ruff config is in `pyproject.toml` with the rationale inline. Rules are narrow
+on purpose (`F`, `BLE`, `T20`, `G`) and chosen to match what
+`tests/test_hygiene.py` already enforces, so the editor and the suite never
+disagree. `BLE001` is scoped to `cb/` via per-file-ignores listing the legacy
+modules — that list shrinks as the migration deletes them (opensearch/ in
+Lesson 11), so an entry there means "on its way out", not "blind excepts are
+fine here". CI runs the same command (`.github/workflows/ci.yml`).
+
 Baseline 2026-07-30: **113 unit passed, 1 integration passed.**
 Integration tests skip cleanly (with instructions) when nothing is listening on
 the cluster's management port — see `tests/integration/conftest.py`.
