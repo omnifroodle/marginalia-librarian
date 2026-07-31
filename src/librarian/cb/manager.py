@@ -12,7 +12,6 @@ import logging
 from couchbase.exceptions import (
     CollectionAlreadyExistsException,
     CollectionNotFoundException,
-    ScopeAlreadyExistsException,
     ScopeNotFoundException,
 )
 
