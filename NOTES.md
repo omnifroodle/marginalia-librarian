@@ -132,6 +132,21 @@ the instructor to keep this).
   Both arrived as questions about the scaffold rather than about Couchbase.
   Worth protecting: a brief that invites "is this test actually checking that?"
   gets better tests than one that presents the suite as settled.
+- **2026-07-31 — dry-run the scaffold against *wrong* implementations too, not
+  just a right one.** The Lesson 3 suite went 8/8 green against the reference
+  implementation, which under the existing rule meant "ship it." Then five
+  deliberately-broken variants were run through it, and one — a read-modify-
+  write that merges the new body over the stored one instead of replacing it —
+  **passed all eight**. It passes because `model_dump()` emits every field
+  including the `None`s, so merging one dump over another happens to produce
+  the right document. It stops being right the moment the stored document holds
+  a key the model no longer has, which is exactly what re-ingesting the current
+  corpus does (`root_summary_embedding`). That gap became a ninth test.
+  **Rule extension: for each rubric line, write the implementation that violates
+  it and confirm the suite catches it.** Green-against-correct only proves the
+  tests are satisfiable; red-against-wrong is what proves they discriminate.
+  Cheap — five variants of one file, ~10 minutes — and the one that mattered
+  was the one whose defect sounded most obviously catchable.
 - **2026-07-30 — a failing probe is worth more than a passing one.** Both
   Lesson 2 corrections came from measurements that contradicted a plausible
   belief (`request_plus` fixes counts; collection creation needs a readiness
@@ -342,6 +357,76 @@ asserting instantly (`test_l02_manager.py::test_status_counts_documents`).
 
 Do not spend another session rediscovering that `request_plus` is the fix. It
 isn't.
+
+## KV writes (4.6.2) — measured, Lesson 3
+
+### pydantic → JSON: `model_dump()` alone does not upsert
+
+`DocumentRecord.created_at` is a `datetime`, and the default transcoder is
+`json.dumps`:
+
+```
+TypeError: Object of type datetime is not JSON serializable
+```
+
+A plain Python `TypeError`, **not** a `CouchbaseException` — it won't appear in
+the SDK error reference and doesn't look like a Couchbase problem at all. The
+fix is `model_dump(mode="json")`, which ISO-formats datetimes and leaves
+everything else alone.
+
+`DocumentRecord.to_os_doc()` also upserts cleanly (it isoformats the two
+datetime fields by hand), which makes it a tempting shortcut and the wrong one:
+it keeps `root_summary_embedding`, which the migration drops.
+
+### The key length limit is not 250 bytes in a named collection
+
+| keyspace | max key |
+|---|---|
+| `librarian._default._default` | 250 bytes |
+| `librarian.<named scope>.<named collection>` | **246 bytes** |
+
+Collections prepend a collection ID to the key on the wire, so the budget is
+250 minus that prefix, and the prefix grows as the cluster's collection IDs
+grow (measured against collection uids ~0x72e). Treat 246 as a measured
+ceiling, not a constant. Over-length keys raise `InvalidArgumentException`.
+
+Limits are in **bytes, not characters** — 120 `é` (240 bytes) is fine, 126
+(252 bytes) is not. Irrelevant for a `doc_id`; relevant for Lesson 4's
+`f"{doc_id}::{node_id}::{page_number}"`.
+
+Values cap at 20 MB; 21 MB returns `ec=104`.
+
+### Durability costs nothing here, and that is the problem
+
+100 upserts of a record with a 1024-dim embedding, median ms/op, single node,
+zero replicas:
+
+| level | median |
+|---|---|
+| no option / `NONE` | 0.41 ms |
+| `MAJORITY` | 0.47 ms |
+| `MAJORITY_AND_PERSIST_TO_ACTIVE` | 1.19 ms |
+| `PERSIST_TO_MAJORITY` | 1.21 ms |
+
+Every level succeeds. "Majority of one node" is satisfied by the write itself,
+so `MAJORITY` buys a guarantee that costs no round trip — an artifact of this
+cluster that will not survive the trip to Capella. Only the ~2.5× persist-to-
+disk penalty is likely to hold, and it will grow. **Do not benchmark durability
+here and conclude anything.** Re-measure in Lesson 13.
+
+The inverse also bites: `MAJORITY` against a cluster with configured but
+unavailable replicas raises `DurabilityImpossibleException`.
+
+### Assorted verified surface
+
+- `insert` on an existing key → `DocumentExistsException`; `replace` or `get`
+  on a missing key → `DocumentNotFoundException`. `upsert` raises neither.
+- `MutationResult`: `cas`, `mutation_token`, `key`, `flags`, `success`, `value`.
+  `GetResult`: `cas`, `content_as[...]`, `key`, `expiry_time`, `flags`.
+- Floats round-trip exactly — a 1024-dim embedding comes back `==`.
+- `None` round-trips as JSON `null`, not as a missing field.
+- KV read-your-own-write is immediate. No refresh interval, no polling. The lag
+  in the section above belongs to the query service, not to Couchbase.
 
 ## Local Couchbase cluster
 

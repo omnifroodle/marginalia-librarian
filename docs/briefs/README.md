@@ -16,6 +16,7 @@ Read alongside:
 |---|---|---|
 | 1 | [lesson-01.md](lesson-01.md) | Written into `CURRICULUM.md`'s lesson records; moved here unedited. Strong on concept-before-code and on docs links. |
 | 2 | [lesson-02.md](lesson-02.md) | First brief written to the structure below, and the first whose scaffold was dry-run before handoff. |
+| 3 | [lesson-03.md](lesson-03.md) | §5 used for a limitation of the *cluster* rather than of the API: the durability choice can't be evaluated locally. First scaffold dry-run against wrong implementations as well as a right one. |
 
 Briefs are the *teaching* document. The matching **record** — what was decided,
 what it cost, what stayed deferred — stays in `CURRICULUM.md` under
@@ -87,3 +88,9 @@ incident that produced them.
   that reliably distinguishes "this test is hard" from "this test is
   impossible." Lesson 2's scaffold had an impossible assertion in it until this
   step caught it.
+- **Then dry-run it against the *wrong* implementations.** One throwaway file
+  per rubric line, each violating exactly one. Green-against-correct only shows
+  the tests are satisfiable; red-against-wrong shows they discriminate. Lesson
+  3's suite was 8/8 green and still let a read-modify-write `upsert` through —
+  which is now its ninth test. Ten minutes, and it catches the tests that
+  describe a requirement without testing it.
