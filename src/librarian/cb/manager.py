@@ -12,6 +12,7 @@ import logging
 from couchbase.exceptions import (
     CollectionAlreadyExistsException,
     CollectionNotFoundException,
+    ScopeAlreadyExistsException,
     ScopeNotFoundException,
 )
 
@@ -67,8 +68,14 @@ class CollectionManager:
         # if not something is very wrong with the cluster. Trying to create it
         # will fail, we intentionally don't check for this case and let the exception bubble up.
         if self._collection_names() is None:
-            self.collections.create_scope(self.scope_name)
-            _log.info("Created scope: %s", self.scope_name)
+            # check for our scope, create if not
+            # should only fail if somehow called twice in parallel
+            try:
+                self.collections.create_scope(self.scope_name)
+                _log.info("Created scope: %s", self.scope_name)
+            except ScopeAlreadyExistsException:
+                _log.debug("Scope %s already exists", self.scope_name)
+
         else:
             _log.debug("Scope %s already exists", self.scope_name)
 
