@@ -267,6 +267,26 @@ exists to pin the first one.
 not a subclass — both derive straight from `CouchbaseException`. Catching the
 management-API name does not catch the query-service one.
 
+#### "Keyspace" means the whole path, and hides a dangerous ambiguity
+
+A SQL++ keyspace is `namespace:bucket.scope.collection`, so
+`KeyspaceNotFoundException` says "I could not resolve that path" without saying
+which part failed. Measured:
+
+| missing level | exception | server code |
+|---|---|---|
+| **bucket** | `KeyspaceNotFoundException` | **12003** |
+| scope | `ScopeNotFoundException` | 12021 |
+| **collection** | `KeyspaceNotFoundException` | **12003** |
+
+Bucket and collection are identical in both type and code; only the message
+prose differs (`- cause: No bucket named X`). **So treating
+`KeyspaceNotFoundException` as "collection missing" silently reclassifies a
+deleted bucket as an unprovisioned one** — the most serious failure available
+here, reported as a routine one. Do not catch it to mean "missing"; get
+existence from `get_all_scopes()`, where a dead bucket raises
+`BucketNotFoundException` instead.
+
 ### The query service sees new collections late, and one at a time
 
 The KV path is usable ~1ms after `create_collection` returns (above), but the
