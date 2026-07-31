@@ -291,6 +291,51 @@ def test_status_reports_missing_collections_before_they_exist(scoped_config):
         )
 
 
+def test_status_reports_one_missing_collection_in_a_live_scope(scoped_config):
+    """Partial provisioning, the `status()` half of it.
+
+    Every other status test has either all three collections or no scope at
+    all. The middle case is what a deployment looks like the day a lesson adds
+    a name to `ALL_COLLECTIONS`, and it reaches a *different* exception than
+    the empty-scope case: a settled scope with a missing collection raises
+    `KeyspaceNotFoundException` from the query service, which is a sibling of
+    `CollectionNotFoundException`, not a subclass of it.
+    """
+    cluster = create_cluster(scoped_config)
+    bucket, scope_name = scoped_config.couchbase_bucket, scoped_config.couchbase_scope
+
+    sdk = cluster.bucket(bucket).collections()
+    sdk.create_scope(scope_name)
+    for name in (TREE_NODES, PAGE_CONTENT):
+        sdk.create_collection(scope_name, name)
+
+    # Wait for the query service to see *every* collection we created, rather
+    # than sleeping a fixed amount. Two things lag independently here: the
+    # scope (until it lands, every keyspace under it reports as a missing
+    # scope) and each collection separately — gating on one of them and then
+    # asserting about the others is a race that fails maybe one run in three.
+    def _queryable(name: str) -> bool:
+        try:
+            list(cluster.query(f"SELECT RAW COUNT(*) FROM `{bucket}`.`{scope_name}`.`{name}`"))
+            return True
+        except Exception:  # noqa: BLE001 — polling for readiness; any failure means "not yet"
+            return False
+
+    deadline = time.monotonic() + 20.0
+    while time.monotonic() < deadline:
+        if all(_queryable(name) for name in (TREE_NODES, PAGE_CONTENT)):
+            break
+        time.sleep(0.25)
+    else:
+        pytest.fail("query service never saw the provisioned collections within 20s")
+
+    status = CollectionManager(cluster, scoped_config).status()
+
+    assert status[DOCUMENTS] == {"exists": False, "doc_count": None}
+    assert status[TREE_NODES]["exists"] is True
+    assert status[PAGE_CONTENT]["exists"] is True
+
+
 def test_status_counts_documents(scoped_config):
     """The count must be real, and must converge on the truth.
 

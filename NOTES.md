@@ -263,6 +263,26 @@ Two consequences for any code that treats "missing" as a normal outcome:
 `tests/integration/test_l02_manager.py::test_reset_provisions_an_unprovisioned_scope`
 exists to pin the first one.
 
+`KeyspaceNotFoundException` is a **sibling** of `CollectionNotFoundException`,
+not a subclass — both derive straight from `CouchbaseException`. Catching the
+management-API name does not catch the query-service one.
+
+### The query service sees new collections late, and one at a time
+
+The KV path is usable ~1ms after `create_collection` returns (above), but the
+**query** service is not: a brand-new collection reports
+`KeyspaceNotFoundException` from SQL++ for a beat afterwards, and **each
+collection propagates independently**. Creating three and then polling until
+one of them is queryable does not mean the other two are — that mistake made
+`test_status_reports_one_missing_collection_in_a_live_scope` fail on a
+collection that existed, roughly one run in three. Any test that provisions
+collections and then queries them must gate on *every* one it created.
+
+Practical consequence beyond tests: existence and count come from different
+services with different consistency. Read existence from the management API
+(`get_all_scopes()`, immediately consistent) and use SQL++ only to count
+collections you already know are there.
+
 ### Counting documents lags, and no option fixes it
 
 Measured immediately after 300 KV upserts into a fresh, unindexed collection:
